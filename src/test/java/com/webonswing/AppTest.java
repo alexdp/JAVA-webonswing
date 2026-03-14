@@ -42,9 +42,9 @@ class AppTest {
             int responseCode = connection.getResponseCode();
             assertEquals(200, responseCode, "Expected HTTP 200 OK");
 
-            try (InputStream in = connection.getInputStream()) {
-                String body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                assertTrue(body.contains("Hello World"), "Response body should contain 'Hello World'");
+            try (InputStream inputStream = connection.getInputStream()) {
+                String responseBody = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                assertTrue(responseBody.contains("<canvas"), "Response should contain a video element");
             }
         } finally {
             connection.disconnect();
