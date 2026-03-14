@@ -18,6 +18,7 @@ import com.google.gson.Gson;
 
 public class WebOnSwingServer {
 
+    private int port = 8080;
     private final Gson gson = new Gson();
     private final JComponent componentToExpose;
     private Server server;
@@ -25,17 +26,49 @@ public class WebOnSwingServer {
     private volatile byte[] lastFrame = null;
     private volatile long lastFrameTimestamp = 0;
 
-    public WebOnSwingServer(JComponent componentToExpose) {
-        this.componentToExpose = componentToExpose;
+    public WebOnSwingServer(int port) {
+        this.port = port;
+        this.componentToExpose = new JLabel("Hello World", SwingConstants.CENTER);
+    }
+
+
+    public void exposeComponent(JComponent component) {
+        if (component == null) {
+            System.err.println("Cannot expose null component");
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            this.componentToExpose.removeAll();
+            this.componentToExpose.setLayout(new BorderLayout());
+            this.componentToExpose.add(component, BorderLayout.CENTER);
+            this.componentToExpose.revalidate();
+            this.componentToExpose.repaint();
+        });
     }
 
     public void start() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            offscreen = new BufferedImage(componentToExpose.getWidth(), componentToExpose.getHeight(), BufferedImage.TYPE_INT_RGB);
+            if (componentToExpose == null) {
+                System.err.println("WARNING: Component to expose is null - using blank component");
+                return;
+            }
+
+            
+            
+            int width = componentToExpose.getWidth();
+            int height = componentToExpose.getHeight();
+
+            if (width <= 0 || height <= 0) {
+                System.err.println("WARNING: Component dimensions are invalid (width: " + width + ", height: " + height + ") - using default size 800x600");
+                return;
+            }
+            
+            
+            offscreen = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
             
             Graphics2D g = offscreen.createGraphics();
             g.setColor(Color.WHITE);
-            g.fillRect(0, 0, componentToExpose.getWidth(), componentToExpose.getHeight());
+            g.fillRect(0, 0, width, height);
             // printAll is more reliable than paint for offscreen snapshots before the component is shown.
             componentToExpose.printAll(g);
             g.dispose();
@@ -73,7 +106,7 @@ public class WebOnSwingServer {
 
     private Server getServer() {
         if (server == null) {
-            server = new Server(8080);
+            server = new Server(port);
 
             ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
             context.setContextPath("/");
@@ -104,7 +137,7 @@ public class WebOnSwingServer {
 
     private void startServer() throws Exception {
         getServer().start();
-        System.out.println("Server started http://localhost:8080");
+        System.out.println("Server started http://localhost:" + port);
 
         new Thread(() -> {
             try { getServer().join(); } catch (InterruptedException e) { e.printStackTrace(); }
@@ -132,8 +165,23 @@ public class WebOnSwingServer {
         }).start();
     }
 
+    public void stop() throws Exception {
+        if (server != null) {
+            server.stop();
+        }
+    }
+
+    public boolean isRunning() {
+        return server != null && server.isStarted();
+    }
+
     private byte[] renderFrameToBytes() {
         if (componentToExpose == null || offscreen == null) return null;
+        
+        int width = componentToExpose.getWidth();
+        int height = componentToExpose.getHeight();
+        
+        if (width <= 0 || height <= 0) return null;
 
         Graphics2D g = offscreen.createGraphics();
         g.setColor(Color.WHITE);

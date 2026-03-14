@@ -1,46 +1,70 @@
 package com.webonswing;
 
-import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.servlet.ServletContextHandler;
-import org.eclipse.jetty.websocket.server.config.JettyWebSocketServletContainerInitializer;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.util.Date;
+
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
 
 /**
  * Main application entry point.
- * Starts an embedded Jetty server on port 8080 with:
- *   - A "Hello World" HTTP handler at /
- *   - A WebSocket endpoint at /ws
+ * Starts an embedded Jetty server on the specified port with:
+ * -  A servlet at / that serves mini.html which includes a video element and JavaScript to connect to the WebSocket and handle mouse events
+ * -  A servlet at /stream that serves a multipart MJPEG stream of the exposed Swing component
+ * -  A WebSocket endpoint at /events that receives mouse events from the client and dispatches them to the Swing component
  */
 public class App {
 
     public static void main(String[] args) throws Exception {
-        Server server = createServer(8080);
-        server.start();
-        System.out.println("Server started on http://localhost:8080");
-        System.out.println("WebSocket available at ws://localhost:8080/ws");
-        server.join();
+        JComponent sampleComponent = createSampleComponent();
+        WebOnSwingServer webServer = createServer(8080);
+        webServer.exposeComponent(sampleComponent);
+        webServer.start();
     }
 
-    /**
-     * Creates and configures the Jetty server.
-     *
-     * @param port the TCP port to listen on
-     * @return a configured (but not yet started) {@link Server}
-     */
-    public static Server createServer(int port) {
-        Server server = new Server(port);
 
-        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
-        context.setContextPath("/");
-
-        // Register Hello World servlet
-        context.addServlet(HelloWorldServlet.class, "/");
-
-        // Configure WebSocket support and register the WebSocket endpoint
-        JettyWebSocketServletContainerInitializer.configure(context, (servletContext, wsContainer) -> {
-            wsContainer.addMapping("/ws", HelloWebSocketCreator.class);
-        });
-
-        server.setHandler(context);
-        return server;
+    public static WebOnSwingServer createServer(int port) {
+        return new WebOnSwingServer(port);
     }
+
+
+    private static JComponent createSampleComponent() {
+        JPanel panel = new JPanel(null);
+        panel.setSize(800, 600);
+        panel.setBackground(Color.LIGHT_GRAY);
+        panel.setDoubleBuffered(true);
+
+        JPanel draggable = new JPanel();
+        draggable.setBackground(Color.RED);
+        draggable.setDoubleBuffered(true);
+        draggable.setBounds(50, 50, 100, 100);
+        
+        JLabel label = new JLabel("DRAG ME", SwingConstants.CENTER);
+        label.setForeground(Color.WHITE);
+        draggable.setLayout(new BorderLayout());
+        draggable.add(label, BorderLayout.CENTER);
+
+        panel.add(draggable);
+
+        JButton button = new JButton("Click me");
+        button.setBounds(10, 500, 100, 30);
+        JLabel statusLabel = new JLabel("Hello WebSwing", SwingConstants.CENTER);
+        statusLabel.setBounds(120, 500, 300, 30);
+
+        button.addActionListener(e -> statusLabel.setText("Clicked " + new Date()));
+
+        panel.add(button);
+        panel.add(statusLabel);
+
+        panel.doLayout();
+        panel.validate();
+
+        return panel;
+    }
+
+
 }
