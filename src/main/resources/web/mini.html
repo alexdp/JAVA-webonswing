@@ -14,13 +14,26 @@
 let canvas = document.getElementById("screen")
 let eventWs = new WebSocket("ws://" + window.location.host + "/events")
 
+function sendReady() {
+    if (eventWs.readyState === WebSocket.OPEN) {
+        eventWs.send(JSON.stringify({type: "READY"}));
+    }
+}
+
+eventWs.onopen = () => {
+    sendReady();
+};
+
 let isDragging = false;
 let lastMoveTime = 0;
 
 // Re-connect on stream failure
 document.getElementById("stream").onerror = function() {
     console.log("Stream error, reconnecting...");
-    setTimeout(() => { this.src = "/stream?t=" + Date.now(); }, 1000);
+    setTimeout(() => {
+        this.src = "/stream?t=" + Date.now();
+        sendReady();
+    }, 1000);
 };
 
 canvas.onmousedown = e => {

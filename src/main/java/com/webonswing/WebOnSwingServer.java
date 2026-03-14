@@ -102,6 +102,22 @@ public class WebOnSwingServer {
         return lastFrameTimestamp;
     }
 
+    public void forceRender() {
+        Runnable renderTask = () -> {
+            byte[] frame = renderFrameToBytes();
+            if (frame != null) {
+                lastFrame = frame;
+                lastFrameTimestamp = System.currentTimeMillis();
+            }
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            renderTask.run();
+        } else {
+            SwingUtilities.invokeLater(renderTask);
+        }
+    }
+
     private Server getServer() {
         if (server == null) {
             server = new Server(port);

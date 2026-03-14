@@ -25,14 +25,23 @@ public class WebOnSwingEventSocket {
     public void onMessage(Session session, String msg) {
         Map<?, ?> event = webServer.getGson().fromJson(msg, Map.class);
         String type = (String) event.get("type");
-        int x = ((Number) event.get("x")).intValue();
-        int y = ((Number) event.get("y")).intValue();
+        if (type == null) {
+            return;
+        }
 
         SwingUtilities.invokeLater(() -> {
+            if ("READY".equals(type)) {
+                webServer.forceRender();
+                return;
+            }
+
             int id = 0;
             if ("MOUSE_PRESSED".equals(type)) id = MouseEvent.MOUSE_PRESSED;
             if ("MOUSE_RELEASED".equals(type)) id = MouseEvent.MOUSE_RELEASED;
             if ("MOUSE_DRAGGED".equals(type)) id = MouseEvent.MOUSE_DRAGGED;
+
+            int x = toInt(event.get("x"));
+            int y = toInt(event.get("y"));
 
             if (id != 0 && webServer.getComponentToExpose() != null) {
                 JComponent componentExposed = webServer.getComponentToExpose();
@@ -52,5 +61,12 @@ public class WebOnSwingEventSocket {
                 }
             }
         });
+    }
+
+    private int toInt(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        return 0;
     }
 }
