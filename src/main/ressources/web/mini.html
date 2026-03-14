@@ -1,0 +1,57 @@
+﻿<!DOCTYPE html>
+<html>
+<body>
+
+<div style="position:relative; width:800px; height:600px; background: #000;">
+    <!-- MJPEG Stream. Boundary must match server exactly. -->
+    <img id="stream" src="/stream" style="position:absolute; top:0; left:0; width:800px; height:600px; -webkit-user-drag: none; user-select: none;">
+    <!-- Transparent overlay -->
+    <canvas id="screen" width="800" height="600" style="position:absolute; top:0; left:0; z-index: 10;"></canvas>
+</div>
+
+<script>
+
+let canvas = document.getElementById("screen")
+let eventWs = new WebSocket("ws://" + window.location.host + "/events")
+
+let isDragging = false;
+let lastMoveTime = 0;
+
+// Re-connect on stream failure
+document.getElementById("stream").onerror = function() {
+    console.log("Stream error, reconnecting...");
+    setTimeout(() => { this.src = "/stream?t=" + Date.now(); }, 1000);
+};
+
+canvas.onmousedown = e => {
+    isDragging = true;
+    sendEvent("MOUSE_PRESSED", e);
+}
+
+canvas.onmouseup = e => {
+    isDragging = false;
+    sendEvent("MOUSE_RELEASED", e);
+}
+
+canvas.onmousemove = e => {
+    if (isDragging) {
+        let now = Date.now();
+        if (now - lastMoveTime > 16) { 
+            sendEvent("MOUSE_DRAGGED", e);
+            lastMoveTime = now;
+        }
+    }
+}
+
+function sendEvent(type, e) {
+    if (eventWs.readyState === WebSocket.OPEN) {
+        let rect = canvas.getBoundingClientRect()
+        let x = e.clientX - rect.left
+        let y = e.clientY - rect.top
+        eventWs.send(JSON.stringify({type: type, x: x, y: y}))
+    }
+}
+</script>
+
+</body>
+</html>
