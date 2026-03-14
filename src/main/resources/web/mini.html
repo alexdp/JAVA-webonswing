@@ -3,7 +3,7 @@
 <body>
 
 <div style="position:relative; width:800px; height:600px; background: #000;">
-    <canvas id="screen" width="800" height="600" style="position:absolute; top:0; left:0; -webkit-user-drag: none; user-select: none;"></canvas>
+    <canvas id="screen" width="800" height="600" style="position:absolute; top:0; left:0; -webkit-user-drag: none; user-select: none; touch-action: none;"></canvas>
 </div>
 
 <script>
@@ -99,25 +99,92 @@ function base64ToBytes(base64) {
 }
 
 let isDragging = false;
-let lastMoveTime = 0;
+let activePointerId = null;
 
-canvas.onmousedown = e => {
+canvas.addEventListener("pointerdown", e => {
+    if (e.button !== 0) {
+        return;
+    }
     isDragging = true;
+    activePointerId = e.pointerId;
+    canvas.setPointerCapture(e.pointerId);
     sendEvent("MOUSE_PRESSED", e);
-}
+});
 
-canvas.onmouseup = e => {
-    isDragging = false;
-    sendEvent("MOUSE_RELEASED", e);
-}
+canvas.addEventListener("pointermove", e => {
+    if (!isDragging) {
+        return;
+    }
+    if (activePointerId !== null && e.pointerId !== activePointerId) {
+        return;
+    }
+    sendCoalescedDragEvents(e);
+});
 
-canvas.onmousemove = e => {
+canvas.addEventListener("pointerup", e => {
+    endDrag(e);
+});
+
+canvas.addEventListener("pointercancel", e => {
+    endDrag(e);
+});
+
+canvas.addEventListener("lostpointercapture", e => {
+    endDrag(e);
+});
+
+window.addEventListener("blur", () => {
     if (isDragging) {
-        let now = Date.now();
-        if (now - lastMoveTime > 16) { 
-            sendEvent("MOUSE_DRAGGED", e);
-            lastMoveTime = now;
-        }
+        endDrag(lastKnownPointerEvent());
+    }
+});
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden && isDragging) {
+        endDrag(lastKnownPointerEvent());
+    }
+});
+
+function endDrag(e) {
+    if (!isDragging) {
+        return;
+    }
+    if (e && activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) {
+        return;
+    }
+
+    isDragging = false;
+    if (e) {
+        sendEvent("MOUSE_RELEASED", e);
+    }
+
+    if (activePointerId !== null && canvas.hasPointerCapture(activePointerId)) {
+        canvas.releasePointerCapture(activePointerId);
+    }
+    activePointerId = null;
+}
+
+function lastKnownPointerEvent() {
+    return {
+        clientX: canvas.getBoundingClientRect().left,
+        clientY: canvas.getBoundingClientRect().top
+    };
+}
+
+function sendCoalescedDragEvents(e) {
+    if (typeof e.getCoalescedEvents !== "function") {
+        sendEvent("MOUSE_DRAGGED", e);
+        return;
+    }
+
+    let samples = e.getCoalescedEvents();
+    if (!samples || samples.length === 0) {
+        sendEvent("MOUSE_DRAGGED", e);
+        return;
+    }
+
+    for (let i = 0; i < samples.length; i++) {
+        sendEvent("MOUSE_DRAGGED", samples[i]);
     }
 }
 
