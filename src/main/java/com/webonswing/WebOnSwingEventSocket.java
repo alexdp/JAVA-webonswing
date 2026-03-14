@@ -11,9 +11,12 @@ import java.util.Map;
 public class WebOnSwingEventSocket {
     
     private final WebOnSwingServer webServer;
+    private Component dragTarget;
+    private Point dragOffset;
 
     public WebOnSwingEventSocket(WebOnSwingServer webServer) {
         this.webServer = webServer;
+        this.dragOffset = new Point();
     }
 
     @OnWebSocketConnect
@@ -46,18 +49,38 @@ public class WebOnSwingEventSocket {
             if (id != 0 && webServer.getComponentToExpose() != null) {
                 JComponent componentExposed = webServer.getComponentToExpose();
                 Component component = componentExposed.getComponentAt(x, y);
-                if (id == MouseEvent.MOUSE_DRAGGED && component != componentExposed && component != null) {
-                    component.setLocation(x - component.getWidth() / 2, y - component.getHeight() / 2);
+
+                if (id == MouseEvent.MOUSE_PRESSED) {
+                    if (component != null && component != componentExposed) {
+                        dragTarget = component;
+                        Point p = SwingUtilities.convertPoint(componentExposed, x, y, dragTarget);
+                        dragOffset = new Point(p.x, p.y);
+                    } else {
+                        dragTarget = null;
+                    }
+                }
+
+                if (id == MouseEvent.MOUSE_DRAGGED && dragTarget != null) {
+                    dragTarget.setLocation(x - dragOffset.x, y - dragOffset.y);
                     componentExposed.repaint();
                 }
 
+                Component dispatchTarget = component;
+                if ((id == MouseEvent.MOUSE_DRAGGED || id == MouseEvent.MOUSE_RELEASED) && dragTarget != null) {
+                    dispatchTarget = dragTarget;
+                }
+
                 MouseEvent me = new MouseEvent(componentExposed, id, System.currentTimeMillis(), 0, x, y, 1, false, MouseEvent.BUTTON1);
-                if (component != null && component != componentExposed) {
-                    Point p = SwingUtilities.convertPoint(componentExposed, x, y, component);
-                    MouseEvent componentEvent = new MouseEvent(component, id, System.currentTimeMillis(), 0, p.x, p.y, 1, false, MouseEvent.BUTTON1);
-                    component.dispatchEvent(componentEvent);
+                if (dispatchTarget != null && dispatchTarget != componentExposed) {
+                    Point p = SwingUtilities.convertPoint(componentExposed, x, y, dispatchTarget);
+                    MouseEvent componentEvent = new MouseEvent(dispatchTarget, id, System.currentTimeMillis(), 0, p.x, p.y, 1, false, MouseEvent.BUTTON1);
+                    dispatchTarget.dispatchEvent(componentEvent);
                 } else {
                     componentExposed.dispatchEvent(me);
+                }
+
+                if (id == MouseEvent.MOUSE_RELEASED) {
+                    dragTarget = null;
                 }
             }
         });
