@@ -33,9 +33,9 @@ import java.util.Iterator;
 
 public class WebOnSwingServer {
 
-    private static final int JPEG_TRY_MIN_PIXELS = 64 * 64;
-    private static final int JPEG_SAVINGS_MIN_BYTES = 128;
-    private static final float PATCH_JPEG_QUALITY = 0.62f;
+    private static final int BALANCED_JPEG_TRY_MIN_PIXELS = 64 * 64;
+    private static final int BALANCED_JPEG_SAVINGS_MIN_BYTES = 128;
+    private static final float BALANCED_PATCH_JPEG_QUALITY = 0.62f;
 
     private final int port;
     private final Gson gson = new Gson();
@@ -47,10 +47,14 @@ public class WebOnSwingServer {
     private volatile long lastFrameTimestamp = 0;
     private volatile FramePatch lastPatch = null;
     private volatile long lastPatchSequence = 0;
+    private volatile int jpegTryMinPixels = BALANCED_JPEG_TRY_MIN_PIXELS;
+    private volatile int jpegSavingsMinBytes = BALANCED_JPEG_SAVINGS_MIN_BYTES;
+    private volatile float patchJpegQuality = BALANCED_PATCH_JPEG_QUALITY;
 
     public WebOnSwingServer(int port) {
         this.port = port;
         this.componentToExpose = new JLabel("Hello World", SwingConstants.CENTER);
+        setCompressionProfile("balanced");
     }
 
     public void exposeComponent(JComponent component) {
@@ -150,6 +154,27 @@ public class WebOnSwingServer {
         }
         payload.put("patches", serializedPatches);
         return gson.toJson(payload);
+    }
+
+    public void setCompressionProfile(String profile) {
+        String normalized = profile == null ? "balanced" : profile.toLowerCase();
+        switch (normalized) {
+            case "low-bandwidth":
+                jpegTryMinPixels = 16 * 16;
+                jpegSavingsMinBytes = 0;
+                patchJpegQuality = 0.45f;
+                break;
+            case "high-quality":
+                jpegTryMinPixels = 128 * 128;
+                jpegSavingsMinBytes = 256;
+                patchJpegQuality = 0.82f;
+                break;
+            default:
+                jpegTryMinPixels = BALANCED_JPEG_TRY_MIN_PIXELS;
+                jpegSavingsMinBytes = BALANCED_JPEG_SAVINGS_MIN_BYTES;
+                patchJpegQuality = BALANCED_PATCH_JPEG_QUALITY;
+                break;
+        }
     }
 
     public void forceRender() {
@@ -377,13 +402,17 @@ public class WebOnSwingServer {
             return null;
         }
 
+        int localJpegTryMinPixels = jpegTryMinPixels;
+        int localJpegSavingsMinBytes = jpegSavingsMinBytes;
+        float localPatchJpegQuality = patchJpegQuality;
+
         byte[] bestBytes = pngBytes;
         String bestFormat = "png";
 
         long patchPixels = (long) rect.width * rect.height;
-        if (patchPixels >= JPEG_TRY_MIN_PIXELS) {
-            byte[] jpegBytes = encodeJpeg(patchImage, PATCH_JPEG_QUALITY);
-            if (jpegBytes != null && jpegBytes.length + JPEG_SAVINGS_MIN_BYTES < pngBytes.length) {
+        if (patchPixels >= localJpegTryMinPixels) {
+            byte[] jpegBytes = encodeJpeg(patchImage, localPatchJpegQuality);
+            if (jpegBytes != null && jpegBytes.length + localJpegSavingsMinBytes < pngBytes.length) {
                 bestBytes = jpegBytes;
                 bestFormat = "jpeg";
             }

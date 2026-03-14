@@ -33,6 +33,7 @@ public class WebOnSwingEventSocket {
         }
 
         if ("READY".equals(type)) {
+            webServer.setCompressionProfile(toStringValue(event.get("profile")));
             webServer.forceRender();
             return;
         }
@@ -91,5 +92,12 @@ public class WebOnSwingEventSocket {
             return ((Number) value).intValue();
         }
         return 0;
+    }
+
+    private String toStringValue(Object value) {
+        if (value instanceof String) {
+            return (String) value;
+        }
+        return null;
     }
 }

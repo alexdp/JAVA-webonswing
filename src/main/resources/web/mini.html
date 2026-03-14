@@ -62,8 +62,38 @@ function connectStream() {
 
 function sendReady() {
     if (eventWs.readyState === WebSocket.OPEN) {
-        eventWs.send(JSON.stringify({type: "READY"}));
+        eventWs.send(JSON.stringify({
+            type: "READY",
+            profile: detectNetworkProfile()
+        }));
     }
+}
+
+function detectNetworkProfile() {
+    let connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+    if (!connection) {
+        return "balanced"
+    }
+
+    if (connection.saveData) {
+        return "low-bandwidth"
+    }
+
+    let effectiveType = (connection.effectiveType || "").toLowerCase()
+    if (effectiveType === "slow-2g" || effectiveType === "2g" || effectiveType === "3g") {
+        return "low-bandwidth"
+    }
+    if (effectiveType === "4g") {
+        return "high-quality"
+    }
+    return "balanced"
+}
+
+let connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+if (connection && typeof connection.addEventListener === "function") {
+    connection.addEventListener("change", () => {
+        sendReady()
+    })
 }
 
 async function applyPatchQueue() {
