@@ -41,7 +41,12 @@ function connectStream() {
             return
         }
 
-        if (message.type === "FRAME_PATCH") {
+        if (message.type === "FRAME_PATCHES" && Array.isArray(message.patches)) {
+            for (let i = 0; i < message.patches.length; i++) {
+                patchQueue.push(message.patches[i])
+            }
+            applyPatchQueue()
+        } else if (message.type === "FRAME_PATCH") {
             patchQueue.push(message)
             applyPatchQueue()
         }

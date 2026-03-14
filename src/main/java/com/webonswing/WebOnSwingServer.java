@@ -19,8 +19,11 @@ import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public class WebOnSwingServer {
@@ -85,7 +88,9 @@ public class WebOnSwingServer {
 
             byte[] initialPatch = encodeImage(offscreen, "png");
             if (initialPatch != null) {
-                lastPatch = new FramePatch(new Rectangle(0, 0, width, height), initialPatch);
+                List<PatchChunk> chunks = new ArrayList<>();
+                chunks.add(new PatchChunk(new Rectangle(0, 0, width, height), initialPatch));
+                lastPatch = new FramePatch(chunks);
                 lastPatchSequence = 1;
             }
 
@@ -121,12 +126,19 @@ public class WebOnSwingServer {
 
     public String toPatchMessage(FramePatch patch) {
         Map<String, Object> payload = new HashMap<>();
-        payload.put("type", "FRAME_PATCH");
-        payload.put("x", patch.rect.x);
-        payload.put("y", patch.rect.y);
-        payload.put("width", patch.rect.width);
-        payload.put("height", patch.rect.height);
-        payload.put("image", Base64.getEncoder().encodeToString(patch.imageBytes));
+        payload.put("type", "FRAME_PATCHES");
+
+        List<Map<String, Object>> serializedPatches = new ArrayList<>(patch.chunks.size());
+        for (PatchChunk chunk : patch.chunks) {
+            Map<String, Object> serialized = new HashMap<>();
+            serialized.put("x", chunk.rect.x);
+            serialized.put("y", chunk.rect.y);
+            serialized.put("width", chunk.rect.width);
+            serialized.put("height", chunk.rect.height);
+            serialized.put("image", Base64.getEncoder().encodeToString(chunk.imageBytes));
+            serializedPatches.add(serialized);
+        }
+        payload.put("patches", serializedPatches);
         return gson.toJson(payload);
     }
 
@@ -231,62 +243,102 @@ public class WebOnSwingServer {
         componentToExpose.printAll(g);
         g.dispose();
 
-        Rectangle changedRect = forceFullFrame
-                ? new Rectangle(0, 0, offscreen.getWidth(), offscreen.getHeight())
-                : computeDiffRectangle(previousFrame, offscreen);
+        List<Rectangle> changedRects = forceFullFrame
+                ? List.of(new Rectangle(0, 0, offscreen.getWidth(), offscreen.getHeight()))
+                : computeDiffRectangles(previousFrame, offscreen);
 
-        if (changedRect == null) {
+        if (changedRects.isEmpty()) {
             return null;
         }
 
-        byte[] patchBytes = encodeImage(
-                offscreen.getSubimage(changedRect.x, changedRect.y, changedRect.width, changedRect.height),
-                "png"
-        );
+        if (shouldSendFullFrame(changedRects, offscreen.getWidth(), offscreen.getHeight())) {
+            changedRects = List.of(new Rectangle(0, 0, offscreen.getWidth(), offscreen.getHeight()));
+        }
+
+        List<PatchChunk> chunks = new ArrayList<>(changedRects.size());
+        for (Rectangle rect : changedRects) {
+            byte[] patchBytes = encodeImage(
+                    offscreen.getSubimage(rect.x, rect.y, rect.width, rect.height),
+                    "png"
+            );
+            if (patchBytes == null) {
+                return null;
+            }
+            chunks.add(new PatchChunk(rect, patchBytes));
+        }
+
         byte[] fullFrame = encodeImage(offscreen, "jpg");
 
-        if (patchBytes == null || fullFrame == null) {
+        if (fullFrame == null) {
             return null;
         }
 
         previousFrame = copyImage(offscreen);
         lastFrame = fullFrame;
         lastFrameTimestamp = System.currentTimeMillis();
-        lastPatch = new FramePatch(changedRect, patchBytes);
+        lastPatch = new FramePatch(chunks);
         lastPatchSequence++;
 
-        return new FramePatch(changedRect, patchBytes);
+        return lastPatch;
     }
 
-    private Rectangle computeDiffRectangle(BufferedImage previous, BufferedImage current) {
+    private boolean shouldSendFullFrame(List<Rectangle> changedRects, int frameWidth, int frameHeight) {
+        long totalChangedArea = 0;
+        for (Rectangle rect : changedRects) {
+            totalChangedArea += (long) rect.width * rect.height;
+        }
+        long frameArea = (long) frameWidth * frameHeight;
+        return changedRects.size() > 64 || totalChangedArea > (frameArea * 60 / 100);
+    }
+
+    private List<Rectangle> computeDiffRectangles(BufferedImage previous, BufferedImage current) {
         if (previous == null) {
-            return new Rectangle(0, 0, current.getWidth(), current.getHeight());
+            return List.of(new Rectangle(0, 0, current.getWidth(), current.getHeight()));
         }
         if (previous.getWidth() != current.getWidth() || previous.getHeight() != current.getHeight()) {
-            return new Rectangle(0, 0, current.getWidth(), current.getHeight());
+            return List.of(new Rectangle(0, 0, current.getWidth(), current.getHeight()));
         }
 
-        int minX = current.getWidth();
-        int minY = current.getHeight();
-        int maxX = -1;
-        int maxY = -1;
+        List<Rectangle> rectangles = new ArrayList<>();
+        Map<RunKey, RectAccumulator> activeRuns = new LinkedHashMap<>();
 
         for (int y = 0; y < current.getHeight(); y++) {
-            for (int x = 0; x < current.getWidth(); x++) {
-                if (current.getRGB(x, y) != previous.getRGB(x, y)) {
-                    if (x < minX) minX = x;
-                    if (y < minY) minY = y;
-                    if (x > maxX) maxX = x;
-                    if (y > maxY) maxY = y;
+            List<RunKey> rowRuns = new ArrayList<>();
+            int x = 0;
+            while (x < current.getWidth()) {
+                if (current.getRGB(x, y) == previous.getRGB(x, y)) {
+                    x++;
+                    continue;
                 }
+                int startX = x;
+                while (x < current.getWidth() && current.getRGB(x, y) != previous.getRGB(x, y)) {
+                    x++;
+                }
+                rowRuns.add(new RunKey(startX, x - 1));
             }
+
+            Map<RunKey, RectAccumulator> nextRuns = new LinkedHashMap<>();
+            for (RunKey run : rowRuns) {
+                RectAccumulator rect = activeRuns.remove(run);
+                if (rect == null) {
+                    rect = new RectAccumulator(run.startX, y, run.endX - run.startX + 1, 1);
+                } else {
+                    rect.height++;
+                }
+                nextRuns.put(run, rect);
+            }
+
+            for (RectAccumulator completed : activeRuns.values()) {
+                rectangles.add(completed.toRectangle());
+            }
+            activeRuns = nextRuns;
         }
 
-        if (maxX < minX || maxY < minY) {
-            return null;
+        for (RectAccumulator completed : activeRuns.values()) {
+            rectangles.add(completed.toRectangle());
         }
 
-        return new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+        return rectangles;
     }
 
     private BufferedImage copyImage(BufferedImage source) {
@@ -311,13 +363,68 @@ public class WebOnSwingServer {
         }
     }
 
-    public static class FramePatch {
+    private static class RunKey {
+        private final int startX;
+        private final int endX;
+
+        private RunKey(int startX, int endX) {
+            this.startX = startX;
+            this.endX = endX;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof RunKey)) {
+                return false;
+            }
+            RunKey other = (RunKey) obj;
+            return startX == other.startX && endX == other.endX;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Integer.hashCode(startX);
+            result = 31 * result + Integer.hashCode(endX);
+            return result;
+        }
+    }
+
+    private static class RectAccumulator {
+        private final int x;
+        private final int y;
+        private final int width;
+        private int height;
+
+        private RectAccumulator(int x, int y, int width, int height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        private Rectangle toRectangle() {
+            return new Rectangle(x, y, width, height);
+        }
+    }
+
+    private static class PatchChunk {
         private final Rectangle rect;
         private final byte[] imageBytes;
 
-        private FramePatch(Rectangle rect, byte[] imageBytes) {
+        private PatchChunk(Rectangle rect, byte[] imageBytes) {
             this.rect = rect;
             this.imageBytes = imageBytes;
+        }
+    }
+
+    public static class FramePatch {
+        private final List<PatchChunk> chunks;
+
+        private FramePatch(List<PatchChunk> chunks) {
+            this.chunks = chunks;
         }
     }
 }
