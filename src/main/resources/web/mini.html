@@ -3,16 +3,57 @@
 <body>
 
 <div style="position:relative; width:800px; height:600px; background: #000;">
-    <!-- MJPEG Stream. Boundary must match server exactly. -->
-    <img id="stream" src="/stream" style="position:absolute; top:0; left:0; width:800px; height:600px; -webkit-user-drag: none; user-select: none;">
-    <!-- Transparent overlay -->
-    <canvas id="screen" width="800" height="600" style="position:absolute; top:0; left:0; z-index: 10;"></canvas>
+    <canvas id="screen" width="800" height="600" style="position:absolute; top:0; left:0; -webkit-user-drag: none; user-select: none;"></canvas>
 </div>
 
 <script>
 
 let canvas = document.getElementById("screen")
-let eventWs = new WebSocket("ws://" + window.location.host + "/events")
+let context = canvas.getContext("2d")
+let eventWs = null
+let streamSource = null
+let patchQueue = []
+let isApplyingPatch = false
+
+connectEvents()
+connectStream()
+
+function connectEvents() {
+    eventWs = new WebSocket("ws://" + window.location.host + "/events")
+
+    eventWs.onopen = () => {
+        sendReady()
+    }
+
+    eventWs.onclose = () => {
+        setTimeout(connectEvents, 1000)
+    }
+}
+
+function connectStream() {
+    streamSource = new EventSource("/stream")
+
+    streamSource.onmessage = e => {
+        let message = null
+        try {
+            message = JSON.parse(e.data)
+        } catch (_) {
+            return
+        }
+
+        if (message.type === "FRAME_PATCH") {
+            patchQueue.push(message)
+            applyPatchQueue()
+        }
+    }
+
+    streamSource.onerror = () => {
+        if (streamSource) {
+            streamSource.close()
+        }
+        setTimeout(connectStream, 1000)
+    }
+}
 
 function sendReady() {
     if (eventWs.readyState === WebSocket.OPEN) {
@@ -20,21 +61,33 @@ function sendReady() {
     }
 }
 
-eventWs.onopen = () => {
-    sendReady();
-};
+async function applyPatchQueue() {
+    if (isApplyingPatch) {
+        return
+    }
+
+    isApplyingPatch = true
+    while (patchQueue.length > 0) {
+        let patch = patchQueue.shift()
+        await drawPatch(patch)
+    }
+    isApplyingPatch = false
+}
+
+function drawPatch(patch) {
+    return new Promise(resolve => {
+        let image = new Image()
+        image.onload = () => {
+            context.drawImage(image, patch.x, patch.y, patch.width, patch.height)
+            resolve()
+        }
+        image.onerror = () => resolve()
+        image.src = "data:image/png;base64," + patch.image
+    })
+}
 
 let isDragging = false;
 let lastMoveTime = 0;
-
-// Re-connect on stream failure
-document.getElementById("stream").onerror = function() {
-    console.log("Stream error, reconnecting...");
-    setTimeout(() => {
-        this.src = "/stream?t=" + Date.now();
-        sendReady();
-    }, 1000);
-};
 
 canvas.onmousedown = e => {
     isDragging = true;

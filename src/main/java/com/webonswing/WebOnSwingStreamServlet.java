@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 public class WebOnSwingStreamServlet extends HttpServlet {
     
@@ -17,30 +18,28 @@ public class WebOnSwingStreamServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        String boundary = "boundary";
         resp.setStatus(HttpServletResponse.SC_OK);
-        resp.setContentType("multipart/x-mixed-replace; boundary=" + boundary);
+        resp.setContentType("text/event-stream");
+        resp.setCharacterEncoding("UTF-8");
         resp.setHeader("Cache-Control", "no-cache, private, no-store, must-revalidate, max-age=0");
         resp.setHeader("Pragma", "no-cache");
         resp.setHeader("Connection", "keep-alive");
         
         OutputStream out = resp.getOutputStream();
         
-        long lastSentTimestamp = -1;
+        long lastSentSequence = -1;
+        webServer.forceRender();
 
         while (true) {
-            byte[] frame = webServer.getLastFrame();
-            long currentTimestamp = webServer.getLastFrameTimestamp();
-            boolean frameChanged = currentTimestamp != lastSentTimestamp;
-            if (frame != null && (lastSentTimestamp == -1 || frameChanged)) {
+            WebOnSwingServer.FramePatch patch = webServer.getLastPatch();
+            long currentSequence = webServer.getLastPatchSequence();
+            boolean patchChanged = currentSequence != lastSentSequence;
+            if (patch != null && patchChanged) {
                 try {
-                    out.write(("--" + boundary + "\r\n").getBytes());
-                    out.write("Content-Type: image/jpeg\r\n".getBytes());
-                    out.write(("Content-Length: " + frame.length + "\r\n\r\n").getBytes());
-                    out.write(frame);
-                    out.write("\r\n".getBytes());
+                    String payload = webServer.toPatchMessage(patch);
+                    out.write(("data: " + payload + "\n\n").getBytes(StandardCharsets.UTF_8));
                     out.flush();
-                    lastSentTimestamp = currentTimestamp;
+                    lastSentSequence = currentSequence;
                 } catch (IOException e) {
                     break;
                 }

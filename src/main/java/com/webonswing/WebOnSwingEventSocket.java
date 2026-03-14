@@ -29,12 +29,12 @@ public class WebOnSwingEventSocket {
             return;
         }
 
-        SwingUtilities.invokeLater(() -> {
-            if ("READY".equals(type)) {
-                webServer.forceRender();
-                return;
-            }
+        if ("READY".equals(type)) {
+            webServer.forceRender();
+            return;
+        }
 
+        SwingUtilities.invokeLater(() -> {
             int id = 0;
             if ("MOUSE_PRESSED".equals(type)) id = MouseEvent.MOUSE_PRESSED;
             if ("MOUSE_RELEASED".equals(type)) id = MouseEvent.MOUSE_RELEASED;
