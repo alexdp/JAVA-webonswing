@@ -83,7 +83,9 @@ function drawPatch(patch) {
     return new Promise(async resolve => {
         try {
             let bytes = base64ToBytes(patch.image)
-            let blob = new Blob([bytes], { type: "image/png" })
+            let format = (patch.format || "png").toLowerCase()
+            let mimeType = format === "jpeg" || format === "jpg" ? "image/jpeg" : "image/png"
+            let blob = new Blob([bytes], { type: mimeType })
             let bitmap = await createImageBitmap(blob)
             context.drawImage(bitmap, patch.x, patch.y, patch.width, patch.height)
             bitmap.close()

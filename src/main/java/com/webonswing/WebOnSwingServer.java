@@ -9,7 +9,11 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.websocket.server.config.JettyWebSocketServletContainerInitializer;
 
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.MemoryCacheImageOutputStream;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
@@ -25,8 +29,13 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Iterator;
 
 public class WebOnSwingServer {
+
+    private static final int JPEG_TRY_MIN_PIXELS = 64 * 64;
+    private static final int JPEG_SAVINGS_MIN_BYTES = 128;
+    private static final float PATCH_JPEG_QUALITY = 0.62f;
 
     private final int port;
     private final Gson gson = new Gson();
@@ -89,7 +98,7 @@ public class WebOnSwingServer {
             byte[] initialPatch = encodeImage(offscreen, "png");
             if (initialPatch != null) {
                 List<PatchChunk> chunks = new ArrayList<>();
-                chunks.add(new PatchChunk(new Rectangle(0, 0, width, height), initialPatch));
+                chunks.add(new PatchChunk(new Rectangle(0, 0, width, height), initialPatch, "png"));
                 lastPatch = new FramePatch(chunks);
                 lastPatchSequence = 1;
             }
@@ -136,6 +145,7 @@ public class WebOnSwingServer {
             serialized.put("width", chunk.rect.width);
             serialized.put("height", chunk.rect.height);
             serialized.put("image", Base64.getEncoder().encodeToString(chunk.imageBytes));
+            serialized.put("format", chunk.format);
             serializedPatches.add(serialized);
         }
         payload.put("patches", serializedPatches);
@@ -257,14 +267,12 @@ public class WebOnSwingServer {
 
         List<PatchChunk> chunks = new ArrayList<>(changedRects.size());
         for (Rectangle rect : changedRects) {
-            byte[] patchBytes = encodeImage(
-                    offscreen.getSubimage(rect.x, rect.y, rect.width, rect.height),
-                    "png"
-            );
-            if (patchBytes == null) {
+            BufferedImage patchImage = offscreen.getSubimage(rect.x, rect.y, rect.width, rect.height);
+            PatchChunk chunk = encodePatchChunk(rect, patchImage);
+            if (chunk == null) {
                 return null;
             }
-            chunks.add(new PatchChunk(rect, patchBytes));
+            chunks.add(chunk);
         }
 
         byte[] fullFrame = encodeImage(offscreen, "jpg");
@@ -363,6 +371,52 @@ public class WebOnSwingServer {
         }
     }
 
+    private PatchChunk encodePatchChunk(Rectangle rect, BufferedImage patchImage) {
+        byte[] pngBytes = encodeImage(patchImage, "png");
+        if (pngBytes == null) {
+            return null;
+        }
+
+        byte[] bestBytes = pngBytes;
+        String bestFormat = "png";
+
+        long patchPixels = (long) rect.width * rect.height;
+        if (patchPixels >= JPEG_TRY_MIN_PIXELS) {
+            byte[] jpegBytes = encodeJpeg(patchImage, PATCH_JPEG_QUALITY);
+            if (jpegBytes != null && jpegBytes.length + JPEG_SAVINGS_MIN_BYTES < pngBytes.length) {
+                bestBytes = jpegBytes;
+                bestFormat = "jpeg";
+            }
+        }
+
+        return new PatchChunk(rect, bestBytes, bestFormat);
+    }
+
+    private byte[] encodeJpeg(BufferedImage image, float quality) {
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
+        if (!writers.hasNext()) {
+            return null;
+        }
+
+        ImageWriter writer = writers.next();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (MemoryCacheImageOutputStream ios = new MemoryCacheImageOutputStream(out)) {
+            writer.setOutput(ios);
+            ImageWriteParam params = writer.getDefaultWriteParam();
+            if (params.canWriteCompressed()) {
+                params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                params.setCompressionQuality(quality);
+            }
+            writer.write(null, new IIOImage(image, null, null), params);
+            ios.flush();
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            writer.dispose();
+        }
+    }
+
     private static class RunKey {
         private final int startX;
         private final int endX;
@@ -413,10 +467,12 @@ public class WebOnSwingServer {
     private static class PatchChunk {
         private final Rectangle rect;
         private final byte[] imageBytes;
+        private final String format;
 
-        private PatchChunk(Rectangle rect, byte[] imageBytes) {
+        private PatchChunk(Rectangle rect, byte[] imageBytes, String format) {
             this.rect = rect;
             this.imageBytes = imageBytes;
+            this.format = format;
         }
     }
 
