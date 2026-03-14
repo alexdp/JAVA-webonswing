@@ -27,16 +27,12 @@ public class WebOnSwingStreamServlet extends HttpServlet {
         OutputStream out = resp.getOutputStream();
         
         long lastSentTimestamp = -1;
-        long lastSentAt = 0;
-        final long keepAliveFrameIntervalMs = 200;
 
         while (true) {
             byte[] frame = webServer.getLastFrame();
             long currentTimestamp = webServer.getLastFrameTimestamp();
-            long now = System.currentTimeMillis();
             boolean frameChanged = currentTimestamp != lastSentTimestamp;
-            boolean keepAliveDue = (now - lastSentAt) >= keepAliveFrameIntervalMs;
-            if (frame != null && (lastSentTimestamp == -1 || frameChanged || keepAliveDue)) {
+            if (frame != null && (lastSentTimestamp == -1 || frameChanged)) {
                 try {
                     out.write(("--" + boundary + "\r\n").getBytes());
                     out.write("Content-Type: image/jpeg\r\n".getBytes());
@@ -45,7 +41,6 @@ public class WebOnSwingStreamServlet extends HttpServlet {
                     out.write("\r\n".getBytes());
                     out.flush();
                     lastSentTimestamp = currentTimestamp;
-                    lastSentAt = now;
                 } catch (IOException e) {
                     break;
                 }
