@@ -75,15 +75,27 @@ async function applyPatchQueue() {
 }
 
 function drawPatch(patch) {
-    return new Promise(resolve => {
-        let image = new Image()
-        image.onload = () => {
-            context.drawImage(image, patch.x, patch.y, patch.width, patch.height)
-            resolve()
+    return new Promise(async resolve => {
+        try {
+            let bytes = base64ToBytes(patch.image)
+            let blob = new Blob([bytes], { type: "image/png" })
+            let bitmap = await createImageBitmap(blob)
+            context.drawImage(bitmap, patch.x, patch.y, patch.width, patch.height)
+            bitmap.close()
+        } catch (_) {
+            // Ignore malformed patches and continue streaming.
         }
-        image.onerror = () => resolve()
-        image.src = "data:image/png;base64," + patch.image
+        resolve()
     })
+}
+
+function base64ToBytes(base64) {
+    let binary = atob(base64)
+    let bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
 }
 
 let isDragging = false;
