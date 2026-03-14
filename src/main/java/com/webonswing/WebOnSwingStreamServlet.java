@@ -36,7 +36,6 @@ public class WebOnSwingStreamServlet extends HttpServlet {
             long now = System.currentTimeMillis();
             boolean frameChanged = currentTimestamp != lastSentTimestamp;
             boolean keepAliveDue = (now - lastSentAt) >= keepAliveFrameIntervalMs;
-            
             if (frame != null && (lastSentTimestamp == -1 || frameChanged || keepAliveDue)) {
                 try {
                     out.write(("--" + boundary + "\r\n").getBytes());

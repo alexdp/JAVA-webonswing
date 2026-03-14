@@ -20,7 +20,7 @@ public class WebOnSwingServer {
 
     private int port = 8080;
     private final Gson gson = new Gson();
-    private final JComponent componentToExpose;
+    private JComponent componentToExpose;
     private Server server;
     private BufferedImage offscreen;
     private volatile byte[] lastFrame = null;
@@ -38,9 +38,7 @@ public class WebOnSwingServer {
             return;
         }
         SwingUtilities.invokeLater(() -> {
-            this.componentToExpose.removeAll();
-            this.componentToExpose.setLayout(new BorderLayout());
-            this.componentToExpose.add(component, BorderLayout.CENTER);
+            this.componentToExpose = component;
             this.componentToExpose.revalidate();
             this.componentToExpose.repaint();
         });
