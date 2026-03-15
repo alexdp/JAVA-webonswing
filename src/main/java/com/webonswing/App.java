@@ -13,6 +13,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.Timer;
+import javax.swing.JTextArea;
 
 /**
  * Main application entry point.
@@ -63,6 +64,12 @@ public class App {
         JLabel statusLabel = new JLabel("Hello WebSwing", SwingConstants.CENTER);
         statusLabel.setBounds(120, 500, 300, 30);
 
+        JTextArea mainTextArea = new JTextArea("Type in main panel to test keyboard propagation...");
+        mainTextArea.setLineWrap(true);
+        mainTextArea.setWrapStyleWord(true);
+        mainTextArea.setBounds(450, 60, 320, 120);
+        panel.add(mainTextArea);
+
         JLabel clockLabel = new JLabel("Server clock: --:--:--", SwingConstants.CENTER);
         clockLabel.setBounds(450, 20, 320, 30);
         panel.add(clockLabel);
@@ -76,7 +83,7 @@ public class App {
         panel.putClientProperty("clockTimer", clockTimer);
 
         JPanel dialogPanel = new JPanel(null);
-        dialogPanel.setBounds(220, 170, 360, 180);
+        dialogPanel.setBounds(220, 160, 360, 230);
         dialogPanel.setBackground(new Color(248, 248, 248));
         dialogPanel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
         dialogPanel.setVisible(false);
@@ -84,12 +91,17 @@ public class App {
         JLabel dialogTitle = new JLabel("Propagation Test Dialog", SwingConstants.CENTER);
         dialogTitle.setBounds(20, 16, 320, 30);
         JLabel dialogMessage = new JLabel("Dialog time: --:--:--", SwingConstants.CENTER);
-        dialogMessage.setBounds(20, 70, 320, 30);
+        dialogMessage.setBounds(20, 54, 320, 30);
+        JTextArea dialogTextArea = new JTextArea("Type in dialog area to test keyboard propagation...");
+        dialogTextArea.setLineWrap(true);
+        dialogTextArea.setWrapStyleWord(true);
+        dialogTextArea.setBounds(20, 90, 320, 85);
         JButton closeDialogButton = new JButton("Close");
-        closeDialogButton.setBounds(140, 125, 80, 30);
+        closeDialogButton.setBounds(140, 185, 80, 30);
 
         dialogPanel.add(dialogTitle);
         dialogPanel.add(dialogMessage);
+        dialogPanel.add(dialogTextArea);
         dialogPanel.add(closeDialogButton);
 
         Timer dialogTimer = new Timer(1000, e -> {

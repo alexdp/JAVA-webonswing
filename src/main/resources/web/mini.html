@@ -3,7 +3,7 @@
 <body>
 
 <div style="position:relative; width:800px; height:600px; background: #000;">
-    <canvas id="screen" width="800" height="600" style="position:absolute; top:0; left:0; -webkit-user-drag: none; user-select: none; touch-action: none;"></canvas>
+    <canvas id="screen" width="800" height="600" tabindex="0" style="position:absolute; top:0; left:0; -webkit-user-drag: none; user-select: none; touch-action: none; outline: none;"></canvas>
 </div>
 
 <script>
@@ -14,6 +14,8 @@ let eventWs = null
 let streamSource = null
 let patchQueue = []
 let isApplyingPatch = false
+let lastPointerX = 0
+let lastPointerY = 0
 
 connectEvents()
 connectStream()
@@ -142,6 +144,7 @@ canvas.addEventListener("pointerdown", e => {
     if (e.button !== 0) {
         return;
     }
+    canvas.focus();
     isDragging = true;
     activePointerId = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
@@ -169,6 +172,14 @@ canvas.addEventListener("pointercancel", e => {
 canvas.addEventListener("lostpointercapture", e => {
     endDrag(e);
 });
+
+canvas.addEventListener("keydown", e => {
+    sendKeyPressedAndTyped(e)
+})
+
+canvas.addEventListener("keyup", e => {
+    sendKeyEvent("KEY_RELEASED", e, false)
+})
 
 window.addEventListener("blur", () => {
     if (isDragging) {
@@ -227,11 +238,93 @@ function sendCoalescedDragEvents(e) {
 
 function sendEvent(type, e) {
     if (eventWs.readyState === WebSocket.OPEN) {
+        rememberPointerPosition(e)
         let rect = canvas.getBoundingClientRect()
         let x = e.clientX - rect.left
         let y = e.clientY - rect.top
         eventWs.send(JSON.stringify({type: type, x: x, y: y}))
     }
+}
+
+function rememberPointerPosition(e) {
+    if (typeof e.clientX !== "number" || typeof e.clientY !== "number") {
+        return
+    }
+    let rect = canvas.getBoundingClientRect()
+    lastPointerX = e.clientX - rect.left
+    lastPointerY = e.clientY - rect.top
+}
+
+function sendKeyPressedAndTyped(e) {
+    sendKeyEvent("KEY_PRESSED", e, true)
+
+    let typedKey = toTypedKey(e)
+    if (typedKey !== null) {
+        sendKeyEvent("KEY_TYPED", e, true, typedKey)
+    }
+}
+
+function sendKeyEvent(type, e, preventDefault, overrideKey) {
+    if (eventWs.readyState !== WebSocket.OPEN) {
+        return
+    }
+
+    if (preventDefault) {
+        e.preventDefault()
+    }
+
+    let key = overrideKey || e.key
+    let payload = {
+        type: type,
+        key: key,
+        code: e.code || "",
+        keyCode: normalizeKeyCode(e, key),
+        pointerX: lastPointerX,
+        pointerY: lastPointerY,
+        ctrlKey: !!e.ctrlKey,
+        shiftKey: !!e.shiftKey,
+        altKey: !!e.altKey,
+        metaKey: !!e.metaKey
+    }
+    eventWs.send(JSON.stringify(payload))
+}
+
+function normalizeKeyCode(e, key) {
+    if (typeof e.keyCode === "number" && e.keyCode > 0) {
+        return e.keyCode
+    }
+    if (typeof e.which === "number" && e.which > 0) {
+        return e.which
+    }
+
+    if (key === "Enter") return 13
+    if (key === "Backspace") return 8
+    if (key === "Delete") return 46
+    if (key === "ArrowLeft") return 37
+    if (key === "ArrowUp") return 38
+    if (key === "ArrowRight") return 39
+    if (key === "ArrowDown") return 40
+    if (key === "Home") return 36
+    if (key === "End") return 35
+    if (key === "Tab") return 9
+    if (key === "Escape") return 27
+    if (key === "PageUp") return 33
+    if (key === "PageDown") return 34
+
+    return 0
+}
+
+function toTypedKey(e) {
+    if (e.key && e.key.length === 1) {
+        return e.key
+    }
+    if (e.key === "Enter") {
+        return "Enter"
+    }
+    if (e.key === "Tab") {
+        return "Tab"
+    }
+    return null
 }
 </script>
 
