@@ -103,7 +103,7 @@ public class WebOnSwingEventSocket {
                 }
 
                 if (id == MouseEvent.MOUSE_DRAGGED && dragTarget != null) {
-                    dragTarget.setLocation(x - dragOffset.x, y - dragOffset.y);
+                    moveDraggedComponent(componentExposed, dragTarget, x, y);
                     componentExposed.repaint();
                 }
 
@@ -369,6 +369,17 @@ public class WebOnSwingEventSocket {
                 MouseEvent.BUTTON1
         );
         actualTarget.dispatchEvent(event);
+    }
+
+    private void moveDraggedComponent(JComponent root, Component target, int x, int y) {
+        Container parent = target.getParent();
+        if (parent == null) {
+            target.setLocation(x - dragOffset.x, y - dragOffset.y);
+            return;
+        }
+
+        Point pointInParent = SwingUtilities.convertPoint(root, x, y, parent);
+        target.setLocation(pointInParent.x - dragOffset.x, pointInParent.y - dragOffset.y);
     }
 
     private int toInt(Object value) {
