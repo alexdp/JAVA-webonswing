@@ -2,6 +2,7 @@ package com.webonswing;
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.annotations.*;
+import javax.swing.AbstractButton;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
@@ -12,6 +13,7 @@ public class WebOnSwingEventSocket {
     
     private final WebOnSwingServer webServer;
     private Component dragTarget;
+    private Component pressTarget;
     private Point dragOffset;
 
     public WebOnSwingEventSocket(WebOnSwingServer webServer) {
@@ -49,16 +51,27 @@ public class WebOnSwingEventSocket {
 
             if (id != 0 && webServer.getComponentToExpose() != null) {
                 JComponent componentExposed = webServer.getComponentToExpose();
-                Component component = componentExposed.getComponentAt(x, y);
+                Component hovered = SwingUtilities.getDeepestComponentAt(componentExposed, x, y);
+                if (hovered == null) {
+                    hovered = componentExposed;
+                }
 
                 if (id == MouseEvent.MOUSE_PRESSED) {
-                    if (component != null && component != componentExposed) {
-                        dragTarget = component;
+                    pressTarget = hovered;
+
+                    // Do not capture drag on button-like controls; it breaks click actions.
+                    if (pressTarget instanceof AbstractButton) {
+                        dragTarget = null;
+                    } else if (pressTarget != componentExposed) {
+                        dragTarget = pressTarget;
                         Point p = SwingUtilities.convertPoint(componentExposed, x, y, dragTarget);
                         dragOffset = new Point(p.x, p.y);
                     } else {
                         dragTarget = null;
                     }
+
+                    dispatchMouse(componentExposed, pressTarget, id, x, y, MouseEvent.BUTTON1_DOWN_MASK, 1);
+                    return;
                 }
 
                 if (id == MouseEvent.MOUSE_DRAGGED && dragTarget != null) {
@@ -66,25 +79,43 @@ public class WebOnSwingEventSocket {
                     componentExposed.repaint();
                 }
 
-                Component dispatchTarget = component;
-                if ((id == MouseEvent.MOUSE_DRAGGED || id == MouseEvent.MOUSE_RELEASED) && dragTarget != null) {
+                Component dispatchTarget = hovered;
+                if (id == MouseEvent.MOUSE_DRAGGED && dragTarget != null) {
                     dispatchTarget = dragTarget;
+                } else if (id == MouseEvent.MOUSE_RELEASED && pressTarget != null) {
+                    dispatchTarget = pressTarget;
                 }
 
-                MouseEvent me = new MouseEvent(componentExposed, id, System.currentTimeMillis(), 0, x, y, 1, false, MouseEvent.BUTTON1);
-                if (dispatchTarget != null && dispatchTarget != componentExposed) {
-                    Point p = SwingUtilities.convertPoint(componentExposed, x, y, dispatchTarget);
-                    MouseEvent componentEvent = new MouseEvent(dispatchTarget, id, System.currentTimeMillis(), 0, p.x, p.y, 1, false, MouseEvent.BUTTON1);
-                    dispatchTarget.dispatchEvent(componentEvent);
-                } else {
-                    componentExposed.dispatchEvent(me);
+                int modifiersEx = id == MouseEvent.MOUSE_DRAGGED ? MouseEvent.BUTTON1_DOWN_MASK : 0;
+                dispatchMouse(componentExposed, dispatchTarget, id, x, y, modifiersEx, 1);
+
+                if (id == MouseEvent.MOUSE_RELEASED && pressTarget instanceof AbstractButton && dispatchTarget == pressTarget) {
+                    dispatchMouse(componentExposed, pressTarget, MouseEvent.MOUSE_CLICKED, x, y, 0, 1);
                 }
 
                 if (id == MouseEvent.MOUSE_RELEASED) {
                     dragTarget = null;
+                    pressTarget = null;
                 }
             }
         });
+    }
+
+    private void dispatchMouse(JComponent root, Component target, int eventId, int x, int y, int modifiersEx, int clickCount) {
+        Component actualTarget = target == null ? root : target;
+        Point pointInTarget = SwingUtilities.convertPoint(root, x, y, actualTarget);
+        MouseEvent event = new MouseEvent(
+                actualTarget,
+                eventId,
+                System.currentTimeMillis(),
+                modifiersEx,
+                pointInTarget.x,
+                pointInTarget.y,
+                clickCount,
+                false,
+                MouseEvent.BUTTON1
+        );
+        actualTarget.dispatchEvent(event);
     }
 
     private int toInt(Object value) {

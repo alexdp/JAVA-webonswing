@@ -6,6 +6,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -57,6 +58,8 @@ public class App {
 
         JButton button = new JButton("Click me");
         button.setBounds(10, 500, 100, 30);
+        JButton showDialogButton = new JButton("Show dialog");
+        showDialogButton.setBounds(10, 460, 110, 30);
         JLabel statusLabel = new JLabel("Hello WebSwing", SwingConstants.CENTER);
         statusLabel.setBounds(120, 500, 300, 30);
 
@@ -72,10 +75,52 @@ public class App {
         clockTimer.start();
         panel.putClientProperty("clockTimer", clockTimer);
 
+        JPanel dialogPanel = new JPanel(null);
+        dialogPanel.setBounds(220, 170, 360, 180);
+        dialogPanel.setBackground(new Color(248, 248, 248));
+        dialogPanel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
+        dialogPanel.setVisible(false);
+
+        JLabel dialogTitle = new JLabel("Propagation Test Dialog", SwingConstants.CENTER);
+        dialogTitle.setBounds(20, 16, 320, 30);
+        JLabel dialogMessage = new JLabel("Dialog time: --:--:--", SwingConstants.CENTER);
+        dialogMessage.setBounds(20, 70, 320, 30);
+        JButton closeDialogButton = new JButton("Close");
+        closeDialogButton.setBounds(140, 125, 80, 30);
+
+        dialogPanel.add(dialogTitle);
+        dialogPanel.add(dialogMessage);
+        dialogPanel.add(closeDialogButton);
+
+        Timer dialogTimer = new Timer(1000, e -> {
+            if (dialogPanel.isVisible()) {
+                dialogMessage.setText("Dialog time: " + LocalTime.now().format(CLOCK_FORMATTER));
+                panel.repaint(dialogPanel.getBounds());
+            }
+        });
+        dialogTimer.start();
+        panel.putClientProperty("dialogTimer", dialogTimer);
+
+        showDialogButton.addActionListener(e -> {
+            dialogMessage.setText("Dialog time: " + LocalTime.now().format(CLOCK_FORMATTER));
+            dialogPanel.setVisible(true);
+            panel.repaint(dialogPanel.getBounds());
+            statusLabel.setText("Dialog opened");
+        });
+
+        closeDialogButton.addActionListener(e -> {
+            dialogPanel.setVisible(false);
+            panel.repaint(dialogPanel.getBounds());
+            statusLabel.setText("Dialog closed");
+        });
+
         button.addActionListener(e -> statusLabel.setText("Clicked " + new Date()));
 
+        panel.add(showDialogButton);
         panel.add(button);
         panel.add(statusLabel);
+        panel.add(dialogPanel);
+        panel.setComponentZOrder(dialogPanel, 0);
 
         panel.doLayout();
         panel.validate();
