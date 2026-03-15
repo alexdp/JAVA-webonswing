@@ -2,6 +2,8 @@ package com.webonswing;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 
 import javax.swing.JButton;
@@ -9,6 +11,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
+import javax.swing.Timer;
 
 /**
  * Main application entry point.
@@ -18,6 +21,8 @@ import javax.swing.SwingConstants;
  * -  A WebSocket endpoint at /events that receives mouse events from the client and dispatches them to the Swing component
  */
 public class App {
+
+    private static final DateTimeFormatter CLOCK_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     public static void main(String[] args) throws Exception {
         JComponent sampleComponent = createSampleComponent();
@@ -54,6 +59,18 @@ public class App {
         button.setBounds(10, 500, 100, 30);
         JLabel statusLabel = new JLabel("Hello WebSwing", SwingConstants.CENTER);
         statusLabel.setBounds(120, 500, 300, 30);
+
+        JLabel clockLabel = new JLabel("Server clock: --:--:--", SwingConstants.CENTER);
+        clockLabel.setBounds(450, 20, 320, 30);
+        panel.add(clockLabel);
+
+        Timer clockTimer = new Timer(1000, e -> {
+            clockLabel.setText("Server clock: " + LocalTime.now().format(CLOCK_FORMATTER));
+            panel.repaint(clockLabel.getBounds());
+        });
+        clockTimer.setInitialDelay(0);
+        clockTimer.start();
+        panel.putClientProperty("clockTimer", clockTimer);
 
         button.addActionListener(e -> statusLabel.setText("Clicked " + new Date()));
 
