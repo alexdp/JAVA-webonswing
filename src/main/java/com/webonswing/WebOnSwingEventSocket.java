@@ -14,15 +14,12 @@ import javax.swing.text.JTextComponent;
 public class WebOnSwingEventSocket {
     
     private final WebOnSwingServer webServer;
-    private Component dragTarget;
     private Component pressTarget;
     private Component keyboardTarget;
     private JTextComponent activeTextTarget;
-    private Point dragOffset;
 
     public WebOnSwingEventSocket(WebOnSwingServer webServer) {
         this.webServer = webServer;
-        this.dragOffset = new Point();
     }
 
     @OnWebSocketConnect
@@ -89,28 +86,12 @@ public class WebOnSwingEventSocket {
                     requestFocusForKeyboardTarget();
                     placeCaretAtClick(componentExposed, keyboardTarget, x, y);
 
-                    // Do not capture drag on controls that should receive click/typing.
-                    if (!isDragCandidate(pressTarget, componentExposed)) {
-                        dragTarget = null;
-                    } else {
-                        dragTarget = pressTarget;
-                        Point p = SwingUtilities.convertPoint(componentExposed, x, y, dragTarget);
-                        dragOffset = new Point(p.x, p.y);
-                    }
-
                     dispatchMouse(componentExposed, pressTarget, id, x, y, MouseEvent.BUTTON1_DOWN_MASK, 1);
                     return;
                 }
 
-                if (id == MouseEvent.MOUSE_DRAGGED && dragTarget != null) {
-                    moveDraggedComponent(componentExposed, dragTarget, x, y);
-                    componentExposed.repaint();
-                }
-
                 Component dispatchTarget = hovered;
-                if (id == MouseEvent.MOUSE_DRAGGED && dragTarget != null) {
-                    dispatchTarget = dragTarget;
-                } else if (id == MouseEvent.MOUSE_RELEASED && pressTarget != null) {
+                if ((id == MouseEvent.MOUSE_DRAGGED || id == MouseEvent.MOUSE_RELEASED) && pressTarget != null) {
                     dispatchTarget = pressTarget;
                 }
 
@@ -122,7 +103,6 @@ public class WebOnSwingEventSocket {
                 }
 
                 if (id == MouseEvent.MOUSE_RELEASED) {
-                    dragTarget = null;
                     pressTarget = null;
                 }
             }
@@ -307,16 +287,6 @@ public class WebOnSwingEventSocket {
         return root;
     }
 
-    private boolean isDragCandidate(Component component, JComponent root) {
-        if (component == null || component == root) {
-            return false;
-        }
-        return !(component instanceof AbstractButton)
-                && !(component instanceof JTextComponent)
-                && !(component instanceof JScrollPane)
-                && !(component instanceof JViewport);
-    }
-
     private Component viewFromViewportContainer(Component component) {
         if (component instanceof JViewport) {
             return ((JViewport) component).getView();
@@ -369,17 +339,6 @@ public class WebOnSwingEventSocket {
                 MouseEvent.BUTTON1
         );
         actualTarget.dispatchEvent(event);
-    }
-
-    private void moveDraggedComponent(JComponent root, Component target, int x, int y) {
-        Container parent = target.getParent();
-        if (parent == null) {
-            target.setLocation(x - dragOffset.x, y - dragOffset.y);
-            return;
-        }
-
-        Point pointInParent = SwingUtilities.convertPoint(root, x, y, parent);
-        target.setLocation(pointInParent.x - dragOffset.x, pointInParent.y - dragOffset.y);
     }
 
     private int toInt(Object value) {

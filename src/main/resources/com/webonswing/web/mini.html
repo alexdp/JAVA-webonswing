@@ -1,0 +1,332 @@
+﻿<!DOCTYPE html>
+<html>
+<body>
+
+<div style="position:relative; width:800px; height:600px; background: #000;">
+    <canvas id="screen" width="800" height="600" tabindex="0" style="position:absolute; top:0; left:0; -webkit-user-drag: none; user-select: none; touch-action: none; outline: none;"></canvas>
+</div>
+
+<script>
+
+let canvas = document.getElementById("screen")
+let context = canvas.getContext("2d")
+let eventWs = null
+let streamSource = null
+let patchQueue = []
+let isApplyingPatch = false
+let lastPointerX = 0
+let lastPointerY = 0
+
+connectEvents()
+connectStream()
+
+function connectEvents() {
+    eventWs = new WebSocket("ws://" + window.location.host + "/events")
+
+    eventWs.onopen = () => {
+        sendReady()
+    }
+
+    eventWs.onclose = () => {
+        setTimeout(connectEvents, 1000)
+    }
+}
+
+function connectStream() {
+    streamSource = new EventSource("/stream")
+
+    streamSource.onmessage = e => {
+        let message = null
+        try {
+            message = JSON.parse(e.data)
+        } catch (_) {
+            return
+        }
+
+        if (message.type === "FRAME_PATCHES" && Array.isArray(message.patches)) {
+            for (let i = 0; i < message.patches.length; i++) {
+                patchQueue.push(message.patches[i])
+            }
+            applyPatchQueue()
+        } else if (message.type === "FRAME_PATCH") {
+            patchQueue.push(message)
+            applyPatchQueue()
+        }
+    }
+
+    streamSource.onerror = () => {
+        if (streamSource) {
+            streamSource.close()
+        }
+        setTimeout(connectStream, 1000)
+    }
+}
+
+function sendReady() {
+    if (eventWs.readyState === WebSocket.OPEN) {
+        eventWs.send(JSON.stringify({
+            type: "READY",
+            profile: detectNetworkProfile()
+        }));
+    }
+}
+
+function detectNetworkProfile() {
+    let connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+    if (!connection) {
+        return "balanced"
+    }
+
+    if (connection.saveData) {
+        return "low-bandwidth"
+    }
+
+    let effectiveType = (connection.effectiveType || "").toLowerCase()
+    if (effectiveType === "slow-2g" || effectiveType === "2g" || effectiveType === "3g") {
+        return "low-bandwidth"
+    }
+    if (effectiveType === "4g") {
+        return "high-quality"
+    }
+    return "balanced"
+}
+
+let connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+if (connection && typeof connection.addEventListener === "function") {
+    connection.addEventListener("change", () => {
+        sendReady()
+    })
+}
+
+async function applyPatchQueue() {
+    if (isApplyingPatch) {
+        return
+    }
+
+    isApplyingPatch = true
+    while (patchQueue.length > 0) {
+        let patch = patchQueue.shift()
+        await drawPatch(patch)
+    }
+    isApplyingPatch = false
+}
+
+function drawPatch(patch) {
+    return new Promise(async resolve => {
+        try {
+            let bytes = base64ToBytes(patch.image)
+            let format = (patch.format || "png").toLowerCase()
+            let mimeType = format === "jpeg" || format === "jpg" ? "image/jpeg" : "image/png"
+            let blob = new Blob([bytes], { type: mimeType })
+            let bitmap = await createImageBitmap(blob)
+            context.drawImage(bitmap, patch.x, patch.y, patch.width, patch.height)
+            bitmap.close()
+        } catch (_) {
+            // Ignore malformed patches and continue streaming.
+        }
+        resolve()
+    })
+}
+
+function base64ToBytes(base64) {
+    let binary = atob(base64)
+    let bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
+}
+
+let isDragging = false;
+let activePointerId = null;
+
+canvas.addEventListener("pointerdown", e => {
+    if (e.button !== 0) {
+        return;
+    }
+    canvas.focus();
+    isDragging = true;
+    activePointerId = e.pointerId;
+    canvas.setPointerCapture(e.pointerId);
+    sendEvent("MOUSE_PRESSED", e);
+});
+
+canvas.addEventListener("pointermove", e => {
+    if (!isDragging) {
+        return;
+    }
+    if (activePointerId !== null && e.pointerId !== activePointerId) {
+        return;
+    }
+    sendCoalescedDragEvents(e);
+});
+
+canvas.addEventListener("pointerup", e => {
+    endDrag(e);
+});
+
+canvas.addEventListener("pointercancel", e => {
+    endDrag(e);
+});
+
+canvas.addEventListener("lostpointercapture", e => {
+    endDrag(e);
+});
+
+canvas.addEventListener("keydown", e => {
+    sendKeyPressedAndTyped(e)
+})
+
+canvas.addEventListener("keyup", e => {
+    sendKeyEvent("KEY_RELEASED", e, false)
+})
+
+window.addEventListener("blur", () => {
+    if (isDragging) {
+        endDrag(lastKnownPointerEvent());
+    }
+});
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden && isDragging) {
+        endDrag(lastKnownPointerEvent());
+    }
+});
+
+function endDrag(e) {
+    if (!isDragging) {
+        return;
+    }
+    if (e && activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) {
+        return;
+    }
+
+    isDragging = false;
+    if (e) {
+        sendEvent("MOUSE_RELEASED", e);
+    }
+
+    if (activePointerId !== null && canvas.hasPointerCapture(activePointerId)) {
+        canvas.releasePointerCapture(activePointerId);
+    }
+    activePointerId = null;
+}
+
+function lastKnownPointerEvent() {
+    return {
+        clientX: canvas.getBoundingClientRect().left,
+        clientY: canvas.getBoundingClientRect().top
+    };
+}
+
+function sendCoalescedDragEvents(e) {
+    if (typeof e.getCoalescedEvents !== "function") {
+        sendEvent("MOUSE_DRAGGED", e);
+        return;
+    }
+
+    let samples = e.getCoalescedEvents();
+    if (!samples || samples.length === 0) {
+        sendEvent("MOUSE_DRAGGED", e);
+        return;
+    }
+
+    for (let i = 0; i < samples.length; i++) {
+        sendEvent("MOUSE_DRAGGED", samples[i]);
+    }
+}
+
+function sendEvent(type, e) {
+    if (eventWs.readyState === WebSocket.OPEN) {
+        rememberPointerPosition(e)
+        let rect = canvas.getBoundingClientRect()
+        let x = e.clientX - rect.left
+        let y = e.clientY - rect.top
+        eventWs.send(JSON.stringify({type: type, x: x, y: y}))
+    }
+}
+
+function rememberPointerPosition(e) {
+    if (typeof e.clientX !== "number" || typeof e.clientY !== "number") {
+        return
+    }
+    let rect = canvas.getBoundingClientRect()
+    lastPointerX = e.clientX - rect.left
+    lastPointerY = e.clientY - rect.top
+}
+
+function sendKeyPressedAndTyped(e) {
+    sendKeyEvent("KEY_PRESSED", e, true)
+
+    let typedKey = toTypedKey(e)
+    if (typedKey !== null) {
+        sendKeyEvent("KEY_TYPED", e, true, typedKey)
+    }
+}
+
+function sendKeyEvent(type, e, preventDefault, overrideKey) {
+    if (eventWs.readyState !== WebSocket.OPEN) {
+        return
+    }
+
+    if (preventDefault) {
+        e.preventDefault()
+    }
+
+    let key = overrideKey || e.key
+    let payload = {
+        type: type,
+        key: key,
+        code: e.code || "",
+        keyCode: normalizeKeyCode(e, key),
+        pointerX: lastPointerX,
+        pointerY: lastPointerY,
+        ctrlKey: !!e.ctrlKey,
+        shiftKey: !!e.shiftKey,
+        altKey: !!e.altKey,
+        metaKey: !!e.metaKey
+    }
+    eventWs.send(JSON.stringify(payload))
+}
+
+function normalizeKeyCode(e, key) {
+    if (typeof e.keyCode === "number" && e.keyCode > 0) {
+        return e.keyCode
+    }
+    if (typeof e.which === "number" && e.which > 0) {
+        return e.which
+    }
+
+    if (key === "Enter") return 13
+    if (key === "Backspace") return 8
+    if (key === "Delete") return 46
+    if (key === "ArrowLeft") return 37
+    if (key === "ArrowUp") return 38
+    if (key === "ArrowRight") return 39
+    if (key === "ArrowDown") return 40
+    if (key === "Home") return 36
+    if (key === "End") return 35
+    if (key === "Tab") return 9
+    if (key === "Escape") return 27
+    if (key === "PageUp") return 33
+    if (key === "PageDown") return 34
+
+    return 0
+}
+
+function toTypedKey(e) {
+    if (e.key && e.key.length === 1) {
+        return e.key
+    }
+    if (e.key === "Enter") {
+        return "Enter"
+    }
+    if (e.key === "Tab") {
+        return "Tab"
+    }
+    return null
+}
+</script>
+
+</body>
+</html>

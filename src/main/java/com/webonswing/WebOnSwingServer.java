@@ -2,11 +2,8 @@ package com.webonswing;
 
 import com.google.gson.Gson;
 import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.handler.HandlerList;
-import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.websocket.server.config.JettyWebSocketServletContainerInitializer;
 
 import javax.imageio.IIOImage;
@@ -199,20 +196,10 @@ public class WebOnSwingServer {
             JettyWebSocketServletContainerInitializer.configure(context,
                     (servletContext, wsContainer) -> wsContainer.addMapping("/events", (req, res) -> new WebOnSwingEventSocket(this)));
 
+                context.addServlet(new ServletHolder(new WebOnSwingPageServlet()), "/");
             context.addServlet(new ServletHolder(new WebOnSwingStreamServlet(this)), "/stream");
 
-            ResourceHandler resourceHandler = new ResourceHandler();
-            resourceHandler.setDirectoriesListed(false);
-            resourceHandler.setWelcomeFiles(new String[]{"mini.html"});
-            resourceHandler.setBaseResource(Resource.newClassPathResource("/web"));
-
-            HandlerList handlers = new HandlerList();
-            handlers.setHandlers(new org.eclipse.jetty.server.Handler[]{
-                    resourceHandler,
-                    context
-            });
-
-            server.setHandler(handlers);
+                server.setHandler(context);
         }
         return server;
     }

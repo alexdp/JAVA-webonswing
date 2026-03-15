@@ -36,19 +36,30 @@ class AppTest {
     @Test
     void testHelloWorldHttpResponse() throws Exception {
         URL url = new URL("http://localhost:" + TEST_PORT + "/");
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-        try {
-            int responseCode = connection.getResponseCode();
-            assertEquals(200, responseCode, "Expected HTTP 200 OK");
+        int responseCode = -1;
+        String responseBody = "";
+        long deadline = System.currentTimeMillis() + 3000;
 
-            try (InputStream inputStream = connection.getInputStream()) {
-                String responseBody = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-                assertTrue(responseBody.contains("<canvas"), "Response should contain a video element");
+        while (System.currentTimeMillis() < deadline) {
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            try {
+                responseCode = connection.getResponseCode();
+                if (responseCode == 200) {
+                    try (InputStream inputStream = connection.getInputStream()) {
+                        responseBody = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                    }
+                    break;
+                }
+            } finally {
+                connection.disconnect();
             }
-        } finally {
-            connection.disconnect();
+
+            Thread.sleep(100);
         }
+
+        assertEquals(200, responseCode, "Expected HTTP 200 OK");
+        assertTrue(responseBody.contains("<canvas"), "Response should contain a canvas element");
     }
 
     @Test

@@ -2,18 +2,23 @@ package com.webonswing;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Date;
+import java.awt.Dimension;
+import java.awt.Frame;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Locale;
+import java.util.Set;
 
-import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JRootPane;
 import javax.swing.SwingConstants;
-import javax.swing.Timer;
-import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 
 /**
  * Main application entry point.
@@ -24,10 +29,16 @@ import javax.swing.JTextArea;
  */
 public class App {
 
-    private static final DateTimeFormatter CLOCK_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final int DEFAULT_WIDTH = 800;
+    private static final int DEFAULT_HEIGHT = 600;
+    private static final long APP_LAUNCH_TIMEOUT_MS = 15000;
+    private static final String DEFAULT_APP_MAIN_CLASS = "com.sun.swingset3.SwingSet3";
+    private static final String APP_MAIN_CLASS_PROPERTY = "webonswing.app.mainClass";
+    private static final String DESKTOP_VISIBLE_PROPERTY = "webonswing.app.desktopVisible";
+    private static final boolean DEFAULT_DESKTOP_VISIBLE = false;
 
     public static void main(String[] args) throws Exception {
-        JComponent sampleComponent = createSampleComponent();
+        JComponent sampleComponent = createSwingSet3Component();
         WebOnSwingServer webServer = createServer(8080);
         webServer.exposeComponent(sampleComponent);
         webServer.start();
@@ -39,104 +50,173 @@ public class App {
     }
 
 
-    private static JComponent createSampleComponent() {
-        JPanel panel = new JPanel(null);
-        panel.setSize(800, 600);
-        panel.setBackground(Color.LIGHT_GRAY);
-        panel.setDoubleBuffered(true);
+    private static JComponent createSwingSet3Component() {
+        String mainClassName = System.getProperty(APP_MAIN_CLASS_PROPERTY, DEFAULT_APP_MAIN_CLASS);
+        JComponent component = launchMainAndCaptureRoot(mainClassName);
+        if (component != null) {
+            return component;
+        }
 
-        JPanel draggable = new JPanel();
-        draggable.setBackground(Color.RED);
-        draggable.setDoubleBuffered(true);
-        draggable.setBounds(50, 50, 100, 100);
-        
-        JLabel label = new JLabel("DRAG ME", SwingConstants.CENTER);
-        label.setForeground(Color.WHITE);
-        draggable.setLayout(new BorderLayout());
-        draggable.add(label, BorderLayout.CENTER);
+        System.err.println("Failed to capture app root for main class: " + mainClassName + ". Falling back to a simple panel.");
+        return createFallbackComponent();
+    }
 
-        panel.add(draggable);
 
-        JButton button = new JButton("Click me");
-        button.setBounds(10, 500, 100, 30);
-        JButton showDialogButton = new JButton("Show dialog");
-        showDialogButton.setBounds(10, 460, 110, 30);
-        JLabel statusLabel = new JLabel("Hello WebSwing", SwingConstants.CENTER);
-        statusLabel.setBounds(120, 500, 300, 30);
+    private static JComponent launchMainAndCaptureRoot(String mainClassName) {
+        Set<Frame> existingFrames = Collections.newSetFromMap(new IdentityHashMap<>());
+        Collections.addAll(existingFrames, Frame.getFrames());
 
-        JTextArea mainTextArea = new JTextArea("Type in main panel to test keyboard propagation...");
-        mainTextArea.setLineWrap(true);
-        mainTextArea.setWrapStyleWord(true);
-        mainTextArea.setBounds(450, 60, 320, 120);
-        panel.add(mainTextArea);
+        Class<?> appClass;
+        try {
+            appClass = Class.forName(mainClassName);
+        } catch (ClassNotFoundException e) {
+            System.err.println("Main class not found: " + mainClassName);
+            return null;
+        }
 
-        JLabel clockLabel = new JLabel("Server clock: --:--:--", SwingConstants.CENTER);
-        clockLabel.setBounds(450, 20, 320, 30);
-        panel.add(clockLabel);
+        Thread launcher = new Thread(() -> invokeMain(appClass), "app-main-launcher");
+        launcher.setDaemon(true);
+        launcher.start();
 
-        Timer clockTimer = new Timer(1000, e -> {
-            clockLabel.setText("Server clock: " + LocalTime.now().format(CLOCK_FORMATTER));
-            panel.repaint(clockLabel.getBounds());
-        });
-        clockTimer.setInitialDelay(0);
-        clockTimer.start();
-        panel.putClientProperty("clockTimer", clockTimer);
-
-        JPanel dialogPanel = new JPanel(null);
-        dialogPanel.setBounds(220, 160, 360, 230);
-        dialogPanel.setBackground(new Color(248, 248, 248));
-        dialogPanel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
-        dialogPanel.setVisible(false);
-
-        JLabel dialogTitle = new JLabel("Propagation Test Dialog", SwingConstants.CENTER);
-        dialogTitle.setBounds(20, 16, 320, 30);
-        JLabel dialogMessage = new JLabel("Dialog time: --:--:--", SwingConstants.CENTER);
-        dialogMessage.setBounds(20, 54, 320, 30);
-        JTextArea dialogTextArea = new JTextArea("Type in dialog area to test keyboard propagation...");
-        dialogTextArea.setLineWrap(true);
-        dialogTextArea.setWrapStyleWord(true);
-        dialogTextArea.setBounds(20, 90, 320, 85);
-        JButton closeDialogButton = new JButton("Close");
-        closeDialogButton.setBounds(140, 185, 80, 30);
-
-        dialogPanel.add(dialogTitle);
-        dialogPanel.add(dialogMessage);
-        dialogPanel.add(dialogTextArea);
-        dialogPanel.add(closeDialogButton);
-
-        Timer dialogTimer = new Timer(1000, e -> {
-            if (dialogPanel.isVisible()) {
-                dialogMessage.setText("Dialog time: " + LocalTime.now().format(CLOCK_FORMATTER));
-                panel.repaint(dialogPanel.getBounds());
+        long deadline = System.currentTimeMillis() + APP_LAUNCH_TIMEOUT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            JComponent capturedRoot = findAppRoot(existingFrames, mainClassName);
+            if (capturedRoot != null) {
+                return capturedRoot;
             }
-        });
-        dialogTimer.start();
-        panel.putClientProperty("dialogTimer", dialogTimer);
 
-        showDialogButton.addActionListener(e -> {
-            dialogMessage.setText("Dialog time: " + LocalTime.now().format(CLOCK_FORMATTER));
-            dialogPanel.setVisible(true);
-            panel.repaint(dialogPanel.getBounds());
-            statusLabel.setText("Dialog opened");
-        });
+            try {
+                Thread.sleep(120);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
 
-        closeDialogButton.addActionListener(e -> {
-            dialogPanel.setVisible(false);
-            panel.repaint(dialogPanel.getBounds());
-            statusLabel.setText("Dialog closed");
-        });
+        return null;
+    }
 
-        button.addActionListener(e -> statusLabel.setText("Clicked " + new Date()));
 
-        panel.add(showDialogButton);
-        panel.add(button);
-        panel.add(statusLabel);
-        panel.add(dialogPanel);
-        panel.setComponentZOrder(dialogPanel, 0);
+    private static void invokeMain(Class<?> appClass) {
+        try {
+            Method mainMethod = appClass.getMethod("main", String[].class);
+            mainMethod.invoke(null, (Object) new String[0]);
+        } catch (Throwable t) {
+            Throwable rootCause = t;
+            while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                rootCause = rootCause.getCause();
+            }
+            System.err.println("Failed to run app main: " + rootCause);
+        }
+    }
 
+
+    private static JComponent findAppRoot(Set<Frame> existingFrames, String mainClassName) {
+        final JComponent[] holder = new JComponent[1];
+        Runnable captureTask = () -> {
+            Frame[] frames = Frame.getFrames();
+            for (Frame frame : frames) {
+                if (existingFrames.contains(frame) || !(frame instanceof JFrame swingFrame)) {
+                    continue;
+                }
+
+                if (!swingFrame.isDisplayable()) {
+                    continue;
+                }
+
+                int width = swingFrame.getWidth();
+                int height = swingFrame.getHeight();
+                if (width <= 0 || height <= 0) {
+                    continue;
+                }
+
+                if (!isLikelyTargetFrame(swingFrame, mainClassName)) {
+                    continue;
+                }
+
+                JRootPane rootPane = swingFrame.getRootPane();
+                if (rootPane == null) {
+                    continue;
+                }
+
+                prepareExposedComponent(rootPane, width, height);
+                if (!isDesktopVisible()) {
+                    hideFrameForServerMode(swingFrame);
+                }
+                holder[0] = rootPane;
+                return;
+            }
+        };
+
+        try {
+            if (SwingUtilities.isEventDispatchThread()) {
+                captureTask.run();
+            } else {
+                SwingUtilities.invokeAndWait(captureTask);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (InvocationTargetException e) {
+            return null;
+        }
+
+        return holder[0];
+    }
+
+
+    private static boolean isLikelyTargetFrame(JFrame frame, String mainClassName) {
+        String title = frame.getTitle();
+        if (title != null && !title.isBlank()) {
+            if (mainClassName.toLowerCase(Locale.ROOT).contains("swingset") && title.toLowerCase(Locale.ROOT).contains("swingset")) {
+                return true;
+            }
+        }
+        return true;
+    }
+
+
+    private static boolean isDesktopVisible() {
+        return Boolean.parseBoolean(System.getProperty(DESKTOP_VISIBLE_PROPERTY, Boolean.toString(DEFAULT_DESKTOP_VISIBLE)));
+    }
+
+
+    private static void hideFrameForServerMode(JFrame frame) {
+        // Hide the desktop window while keeping the Swing component tree alive for offscreen rendering.
+        frame.setLocation(-32000, -32000);
+        frame.setVisible(false);
+    }
+
+
+    private static void prepareExposedComponent(JComponent component) {
+        prepareExposedComponent(component, DEFAULT_WIDTH, DEFAULT_HEIGHT);
+    }
+
+
+    private static void prepareExposedComponent(JComponent component, int width, int height) {
+        int effectiveWidth = width > 0 ? width : DEFAULT_WIDTH;
+        int effectiveHeight = height > 0 ? height : DEFAULT_HEIGHT;
+        component.setPreferredSize(new Dimension(effectiveWidth, effectiveHeight));
+        component.setSize(effectiveWidth, effectiveHeight);
+        component.doLayout();
+        component.validate();
+    }
+
+
+    private static JComponent createFallbackComponent() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(Color.LIGHT_GRAY);
+        panel.setPreferredSize(new Dimension(DEFAULT_WIDTH, DEFAULT_HEIGHT));
+        panel.setSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
+
+        JLabel status = new JLabel("Fallback demo (SwingSet3 not available)", SwingConstants.CENTER);
+        JButton button = new JButton("Click me");
+        button.addActionListener(e -> status.setText("Clicked fallback component"));
+
+        panel.add(status, BorderLayout.CENTER);
+        panel.add(button, BorderLayout.SOUTH);
         panel.doLayout();
         panel.validate();
-
         return panel;
     }
 
